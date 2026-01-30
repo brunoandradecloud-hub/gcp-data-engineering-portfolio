@@ -217,59 +217,98 @@ Camada de Orquestração (Control Plane).
 ## 📊 9. Cloud Logging (Centralized Analysis)
 
 **O que é**
-Repositório centralizado de todos os eventos gerados pelos serviços do GCP.
+O repositório centralizado de todos os eventos gerados pelos serviços do GCP. Ele armazena desde erros de execução de pipelines até logs de auditoria de acesso a dados.
 
 **Quando usar**
-Root Cause Analysis (RCA), Audit Logs e Log-based Metrics.
+
+* **Root Cause Analysis (RCA):** Para investigar por que um Worker do Dataflow morreu ou por que um Job do Dataproc falhou ao ler um arquivo.
+* **Audit Logs:** Para rastrear "Quem fez o quê e quando" em relação aos dados.
+* **Log-based Metrics:** Quando você quer contar quantas vezes um erro aparece e transformar isso em um gráfico.
+
+**Onde se encaixa na arquitetura**
+Transversal. É a "caixa preta" que registra a operação de todas as camadas: Ingestão, Processamento e Storage.
 
 **Exemplo prático**
-Configurar Dataflow para emitir Structured Logging em JSON para filtrar instantaneamente erros de uma venda específica.
+Configurar seu pipeline Dataflow para emitir logs no formato JSON (Structured Logging). Em vez de uma linha de texto confusa, você envia: `{"severidade": "ERROR", "id_venda": 456, "erro": "ID_CLIENTE_VAZIO"}`. Isso permite filtrar instantaneamente todos os erros de uma venda específica no Logging Explorer.
+
+**Ponto de prova / armadilha comum**
+
+* ✅ **Retenção:** Logs têm expiração. Se precisar guardar por anos por compliance, a resposta é criar um **Log Sink** para o BigQuery ou Coldline Storage.
+* ❌ **Custo:** Logs excessivos geram cobrança. Em produção, filtre logs de DEBUG e mantenha apenas INFO ou superior.
 
 ---
 
 ## 📈 10. Cloud Monitoring (Proactive Alerting)
 
 **O que é**
-Ferramenta de telemetria focada em Métricas (CPU, Memória, Latência).
+A ferramenta de telemetria que foca em Métricas (números) e não em logs (texto). Ele mede CPU, Memória, Latência e Througput em tempo real.
 
 **Quando usar**
-Alertas proativos (SMS/E-mail) e Dashboards de saúde (System Lag).
+
+* **Alertas Proativos:** Receber um SMS ou E-mail antes que o pipeline quebre de fato (ex: "Uso de CPU acima de 80% por 10 minutos").
+* **Dashboards de Saúde:** Visualizar o **System Lag** do Dataflow ou a taxa de escrita do BigQuery.
+* **Uptime Checks:** Validar se o endpoint de uma API que alimenta seu pipeline está respondendo.
+
+**Onde se encaixa na arquitetura**
+Camada de Operações e Monitoramento de SLA (Service Level Agreement).
 
 **Exemplo prático**
-Criar alerta baseado no Dataflow System Lag. Se passar de 5 minutos, notificar o time de plantão.
+Criar um alerta baseado na métrica de **Dataflow System Lag**. Se o tempo de atraso entre o evento ocorrer e ser processado passar de 5 minutos, o time de plantão é notificado para escalar o pipeline.
+
+**Ponto de prova / armadilha comum**
+
+* ✅ **Dashboards Customizados:** Você pode misturar métricas de diferentes serviços (ex: Pub/Sub e Dataflow) no mesmo gráfico para ver o gargalo de ponta a ponta.
+* ✅ **Métricas Baseadas em Logs:** Se o Monitoring não tem a métrica que você quer, você a cria a partir de um filtro no Cloud Logging.
 
 ---
 
 ## 🔐 11. IAM para Logs (Privacy & Security)
 
 **O que é**
-Controle granular de quem pode ler quais logs.
+O controle granular de permissões sobre quem pode ler quais tipos de logs. O GCP separa logs operacionais comuns de logs que contêm dados de auditoria sensíveis.
+
+**Quando usar**
+Sempre que houver requisitos de Compliance (LGPD/GDPR/SOC2). Nem todo desenvolvedor deve ter acesso para ver quem acessou tabelas sensíveis.
+
+**Onde se encaixa na arquitetura**
+Camada de Segurança e Governança.
+
+**Diferença Crucial de Prova**
+
+* **Logs Viewer:** Permite ver logs de sistema, erros de jobs e logs de console. Não vê logs de acesso a dados.
+* **Private Logs Viewer:** Papel especial necessário para ver os **Data Access Audit Logs**. Esses logs mostram quem fez SELECT em quais colunas e podem conter PII.
+
+**Exemplo prático**
+O Analista de Segurança precisa auditar se houve vazamento de dados. Você não dá a ele Owner do projeto; você atribui o papel de **Private Logs Viewer** para que ele investigue os registros de acesso no BigQuery.
 
 **Ponto de prova / armadilha comum**
 
-* **Logs Viewer:** Acesso básico a logs operacionais e erros.
-* **Private Logs Viewer:** Necessário para ver Data Access Audit Logs (quem fez SELECT em quais colunas). Pode conter PII.
+* ❌ **Logs de Auditoria:** Por padrão, logs de Data Access (leitura de dados) são desativados para economizar custo. Se a prova pede para auditar acessos passados e os logs não foram ativados, a informação não está disponível.
+* ✅ **Least Privilege:** Sempre use o papel mais restrito. Se o usuário só precisa investigar erros de código, **Logs Viewer** basta.
 
 ---
 
 ## 🛠️ 12. Troubleshooting de Rede e Infraestrutura (IAM + VPC)
 
 **O que é**
-A habilidade de identificar falhas de "encanamento" que impedem o pipeline de rodar, independente do código estar correto.
+A habilidade de identificar falhas de "encanamento" (rede e permissões) que impedem o pipeline de rodar, independente do código estar correto.
 
 **Quando usar**
-Quando o Job falha no "Start" ou os Workers não conseguem se comunicar com o BigQuery/GCS.
+Quando o Job falha no "Start" ou os Workers não conseguem se comunicar com o BigQuery, Cloud Storage ou Pub/Sub.
+
+**Onde se encaixa na arquitetura**
+Camada de Infraestrutura e Rede (VPC - Virtual Private Cloud).
 
 **Principais Causas de Erro (Checklist PDE)**
 
-1. **Service Account sem permissão:** O Dataflow roda com a conta de serviço do Compute Engine por padrão. Se ela não tiver Storage Object Viewer, o job falha ao ler o arquivo.
-2. **Falta de Private Google Access:** Se seus Workers estão em uma sub-rede sem IP externo (Segurança), você precisa ativar o Private Google Access para que eles falhem ao tentar falar com a API do BigQuery.
-3. **Cotas de Projeto:** Erros de "Quota Exceeded" no Monitoring indicam que você atingiu o limite de CPUs ou de escrita por segundo no BigQuery.
+1. **Service Account sem permissão:** O Dataflow roda com a conta de serviço do Compute Engine por padrão. Se ela não tiver `Storage Object Viewer`, o job falha ao ler o arquivo.
+2. **Falta de Private Google Access:** Se os Workers estão em sub-redes sem IP externo (por segurança), você deve ativar o **Private Google Access** para que eles alcancem as APIs do Google internamente.
+3. **Cotas de Projeto:** Erros de "Quota Exceeded" indicam que você atingiu o limite de CPUs ou de taxa de escrita no BigQuery.
 
 **Ponto de prova / armadilha comum**
 
-* ✅ **Regionalidade:** Se o seu dado está no bucket em us-east1 e seu job Dataflow roda em europe-west1, você pagará Egress Cost e terá latência. A recomendação é sempre manter processamento e storage na mesma região.
+* ✅ **Regionalidade:** Se o dado está em `us-east1` e o job Dataflow roda em `europe-west1`, haverá custo de **Egress** e alta latência. A recomendação é manter processamento e storage na mesma região.
 
 ---
 
-**Engenheiro, arquivo processado com sucesso. Tudo pronto para amanhã iniciarmos o Módulo 03 e as questões de simulado?**
+**Engenheiro, esses módulos agora estão prontos para serem integrados ao seu guia final. Algo mais que precise de ajuste antes de passarmos para o cenário prático ou o Módulo 03?**
